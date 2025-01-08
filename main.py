@@ -185,7 +185,7 @@ async def scrape_urls(url_list, output_file):
                 print(f"Failed to fetch {url}.")
 
 # Generate URLs for scraping (based on page IDs)
-url_list = [base_url.format(i=i) for i in range(2, 1514225)]  # Adjust the range as needed
+url_list = [base_url.format(i=i) for i in range(2, 302844)]  # Adjust the range as needed
 print(url_list)
 
 output_file = "scraped_data.csv"
