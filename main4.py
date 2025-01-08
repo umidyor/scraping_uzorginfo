@@ -3,7 +3,7 @@ import aiohttp
 import pandas as pd
 from bs4 import BeautifulSoup
 from bot import *
-api_key = "714240627c295ec56207be5aef8720f8"
+api_key = "8e8db5eb077f9a9eed4fd484e15a2f37"
 base_url = "https://uzorg.info/oz/info-id-{i}"  # Main page URL pattern
 
 # Create a semaphore to limit concurrent requests
@@ -18,11 +18,11 @@ async def fetch_url(session, url):
                 response.raise_for_status()
                 html_content = await response.text()
                 print(f"Fetched data from {url}")
-                await problems(f"2)Fetched data from {url}")
+                await problems(f"4)Fetched data from {url}")
                 return url, html_content
         except Exception as e:
             print(f"Failed to fetch {url}: {e}")
-            await problems(f"2)Failed to fetch {url}: {e}")
+            await problems(f"4)Failed to fetch {url}: {e}")
             return url, None
 
 def extract_headers_and_data(html_content):
@@ -67,15 +67,15 @@ async def scrape_urls(url_list, output_file):
                 # Immediately save data to CSV after each page is processed
                 df = pd.DataFrame(all_data)
                 df.to_csv(output_file, index=False, encoding='utf-8')
-                print(f"2)Data for {url} saved.")
+                print(f"4)Data for {url} saved.")
                 await problems(f"Data for {url} saved.")
             else:
                 print(f"Failed to fetch {url}.")
 
 # Generate URLs for scraping (based on page IDs)
-url_list = [base_url.format(i=i) for i in range(302845,605690)]  # Adjust the range as needed
+url_list = [base_url.format(i=i) for i in range(1211380,1514225)]  # Adjust the range as needed
 print(url_list)
 
-output_file = "scrapedtwo_data.csv"
+output_file = "scrapedfour_data.csv"
 asyncio.run(scrape_urls(url_list, output_file))
-asyncio.run(filesend("File is ready","scrapedtwo_data.csv"))
+asyncio.run(filesend("File is ready","scrapedfour_data.csv"))

@@ -129,12 +129,12 @@ async def fetch_url(session, url):
                 await asyncio.sleep(1)  # Rate limit to avoid sending requests too quickly
                 response.raise_for_status()
                 html_content = await response.text()
-                print(f"Fetched data from {url}")
+                print(f"1)Fetched data from {url}")
                 await problems(f"Fetched data from {url}")
                 return url, html_content
         except Exception as e:
             print(f"Failed to fetch {url}: {e}")
-            await problems(f"Failed to fetch {url}: {e}")
+            await problems(f"1)Failed to fetch {url}: {e}")
             return url, None
 
 def extract_headers_and_data(html_content):
@@ -179,7 +179,7 @@ async def scrape_urls(url_list, output_file):
                 # Immediately save data to CSV after each page is processed
                 df = pd.DataFrame(all_data)
                 df.to_csv(output_file, index=False, encoding='utf-8')
-                print(f"Data for {url} saved.")
+                print(f"1)Data for {url} saved.")
                 await problems(f"Data for {url} saved.")
             else:
                 print(f"Failed to fetch {url}.")
@@ -205,6 +205,3 @@ asyncio.run(filesend("File is ready","scraped_data.csv"))
 #
 # # Run the main function for a single page
 # asyncio.run(main())
-
-
-
