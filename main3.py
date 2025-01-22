@@ -13,7 +13,7 @@ async def fetch_url(session, url):
     """Fetch a URL asynchronously with rate limiting."""
     async with semaphore:
         try:
-            async with session.get(f"https://api.scraperapi.com?api_key={api_key}&url={url}") as response:
+            async with session.get(f"{url}") as response:
                 await asyncio.sleep(1)  # Rate limit to avoid sending requests too quickly
                 response.raise_for_status()
                 html_content = await response.text()

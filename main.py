@@ -115,28 +115,49 @@ import aiohttp
 import pandas as pd
 from bs4 import BeautifulSoup
 from bot import *
-api_key = "400ca7a2f1867dfd87570a6053393443"
+import aiogram
+api_key = "08805ae8991561e7b31e1fc421e53939"
 base_url = "https://uzorg.info/oz/info-id-{i}"  # Main page URL pattern
 
 # Create a semaphore to limit concurrent requests
 semaphore = asyncio.Semaphore(5)  # Limits to 5 concurrent requests
 
+# Function to fetch URL content asynchronously with rate limiting
 async def fetch_url(session, url):
-    """Fetch a URL asynchronously with rate limiting."""
-    async with semaphore:
+    """Fetch a URL asynchronously with rate limiting and retry on failure."""
+    retries = 3  # Retry limit for failed requests
+    attempt = 0
+    while attempt < retries:
         try:
-            async with session.get(f"https://api.scraperapi.com?api_key={api_key}&url={url}") as response:
+            async with session.get(url) as response:
                 await asyncio.sleep(1)  # Rate limit to avoid sending requests too quickly
                 response.raise_for_status()
                 html_content = await response.text()
-                print(f"1)Fetched data from {url}")
+                print(f"Fetched data from {url}")
                 await problems(f"Fetched data from {url}")
                 return url, html_content
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                print(f"404 Error: Page {url} not found. Skipping.")
+                return url, None  # Skip URLs that return 404
+            print(f"ClientError: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
+        except aiohttp.client_exceptions.ClientConnectionError as e:
+            print(f"ConnectionError: Failed to connect to {url}, attempt {attempt + 1}/{retries}: {e}")
+        except aiohttp.client_exceptions.ClientTimeoutError as e:
+            print(f"TimeoutError: Request to {url} timed out, attempt {attempt + 1}/{retries}: {e}")
+        except aiogram.utils.exceptions.RetryAfter as e:
+            # Retry after flood control limit from Telegram bot
+            print(f"Flood control exceeded. Retry after {e.timeout} seconds.")
+            await asyncio.sleep(e.timeout)
         except Exception as e:
-            print(f"Failed to fetch {url}: {e}")
-            await problems(f"1)Failed to fetch {url}: {e}")
-            return url, None
+            print(f"Unexpected error: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
 
+        attempt += 1
+        await asyncio.sleep(2)  # Wait before retrying
+    return url, None  # After all retries, return None for failed fetch
+
+
+# Function to extract headers and data from HTML content
 def extract_headers_and_data(html_content):
     """Extract headers and data from HTML content."""
     soup = BeautifulSoup(html_content, "html.parser")
@@ -162,35 +183,89 @@ def extract_headers_and_data(html_content):
                 data[headers[i]] = value_text
     return headers, data
 
-async def scrape_urls(url_list, output_file):
-    """Scrape data from a list of URLs concurrently and save to CSV immediately."""
-    all_data = []  # List to store all data rows
+# Function to scrape URLs and save data to CSV in batches
+# async def scrape_urls(url_list):
+#     """Scrape data from a list of URLs concurrently and save to CSV in batches."""
+#     batch_size = 100
+#     all_data = []  # List to store all data rows
+#     batch_number = 1  # Start from batch 1
+#
+#     async with aiohttp.ClientSession() as session:
+#         for i in range(0, len(url_list), batch_size):
+#             batch_urls = url_list[i:i + batch_size]
+#             print(batch_urls)
+#             tasks = [fetch_url(session, url) for url in batch_urls]
+#             results = await asyncio.gather(*tasks)
+#
+#             for url, html_content in results:
+#                 if html_content:
+#                     dynamic_headers, data = extract_headers_and_data(html_content)
+#                     all_data.append(data)
+#                 else:
+#                     print(f"Failed to fetch {url}.")
+#
+#             # Save data to CSV after every batch
+#             output_file = f"scraped_{batch_number * batch_size}.csv"
+#             df = pd.DataFrame(all_data)
+#             df.to_csv(output_file, index=False, encoding='utf-8')
+#             print(f"Data for batch {batch_number} saved to {output_file}.")
+#             await problems(f"Data for batch {batch_number} saved to {output_file}.")
+#
+#             # Clear all_data for the next batch
+#             all_data = []
+#
+#             # Sleep for 1 minute after each batch
+#             print(f"Sleeping for 1 minute after batch {batch_number}...")
+#             await asyncio.sleep(60)
+#
+#             batch_number += 1
+#
+# # Generate URLs for scraping (based on page IDs)
+# url_list = [base_url.format(i=i) for i in range(0, 1514225)]  # Adjust the range as needed
+# print(f"Total URLs to scrape: {len(url_list)}")
+async def scrape_urls(url_list):
+    """Scrape data from a list of URLs concurrently and save to CSV in batches."""
+    batch_size = 100
+    semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
 
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_url(session, url) for url in url_list]
-        results = await asyncio.gather(*tasks)
-        print(results)
+        for batch_number, i in enumerate(range(0, len(url_list), batch_size), start=1):
+            batch_urls = url_list[i:i + batch_size]
+            print(f"Processing batch {batch_number} with {len(batch_urls)} URLs...")
 
-        for url, html_content in results:
-            if html_content:
-                dynamic_headers, data = extract_headers_and_data(html_content)
-                all_data.append(data)
+            async def limited_fetch(url):
+                async with semaphore:
+                    return await fetch_url(session, url)
 
-                # Immediately save data to CSV after each page is processed
+            tasks = [limited_fetch(url) for url in batch_urls]
+            results = await asyncio.gather(*tasks)
+
+            all_data = []
+            for url, html_content in results:
+                if html_content:
+                    dynamic_headers, data = extract_headers_and_data(html_content)
+                    all_data.append(data)
+                else:
+                    print(f"Skipping {url} due to fetch failure.")
+
+            if all_data:
+                output_file = f"scraped_{batch_number * batch_size}.csv"
                 df = pd.DataFrame(all_data)
                 df.to_csv(output_file, index=False, encoding='utf-8')
-                print(f"1)Data for {url} saved.")
-                await problems(f"Data for {url} saved.")
-            else:
-                print(f"Failed to fetch {url}.")
+                print(f"Batch {batch_number} saved to {output_file}.")
 
-# Generate URLs for scraping (based on page IDs)
-url_list = [base_url.format(i=i) for i in range(2, 302844)]  # Adjust the range as needed
-print(url_list)
+            print(f"Sleeping for 1 minute after batch {batch_number}...")
+            await asyncio.sleep(60)
 
-output_file = "scraped_data.csv"
-asyncio.run(scrape_urls(url_list, output_file))
-asyncio.run(filesend("File is ready","scraped_data.csv"))
+
+url_list = [base_url.format(i=i) for i in range(0, 1514225)]
+
+print(f"Total URLs to scrape: {len(url_list)}")
+
+# Run the scraper
+asyncio.run(scrape_urls(url_list))
+# Start scraping
+asyncio.run(scrape_urls(url_list))
 
 # Optional: If you want to fetch and process a single URL separately
 # async def main():
