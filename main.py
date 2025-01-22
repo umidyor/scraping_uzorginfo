@@ -123,37 +123,52 @@ base_url = "https://uzorg.info/oz/info-id-{i}"  # Main page URL pattern
 semaphore = asyncio.Semaphore(5)  # Limits to 5 concurrent requests
 
 # Function to fetch URL content asynchronously with rate limiting
+import aiohttp
+import asyncio
+from aiogram.utils.exceptions import RetryAfter
+
+
 async def fetch_url(session, url):
     """Fetch a URL asynchronously with rate limiting and retry on failure."""
     retries = 3  # Retry limit for failed requests
     attempt = 0
     while attempt < retries:
         try:
-            async with session.get(url) as response:
-                await asyncio.sleep(1)  # Rate limit to avoid sending requests too quickly
-                response.raise_for_status()
-                html_content = await response.text()
-                print(f"Fetched data from {url}")
-                await problems(f"Fetched data from {url}")
-                return url, html_content
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                await asyncio.sleep(1)  # Rate limiting to avoid overwhelming the server
+
+                if response.status == 200:
+                    html_content = await response.text()
+                    print(f"Fetched data from {url}")
+                    await problems(f"Fetched data from {url}")
+                    return url, html_content
+
+                elif response.status == 404:
+                    print(f"404 Error: Page {url} not found. Skipping.")
+                    return url, None  # Skip URLs that return 404
+
+                else:
+                    print(f"Unexpected status {response.status} for {url}. Retrying...")
+
         except aiohttp.ClientResponseError as e:
-            if e.status == 404:
-                print(f"404 Error: Page {url} not found. Skipping.")
-                return url, None  # Skip URLs that return 404
             print(f"ClientError: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
-        except aiohttp.client_exceptions.ClientConnectionError as e:
+
+        except aiohttp.ClientConnectionError as e:
             print(f"ConnectionError: Failed to connect to {url}, attempt {attempt + 1}/{retries}: {e}")
-        except aiohttp.client_exceptions.ClientTimeoutError as e:
-            print(f"TimeoutError: Request to {url} timed out, attempt {attempt + 1}/{retries}: {e}")
-        except aiogram.utils.exceptions.RetryAfter as e:
-            # Retry after flood control limit from Telegram bot
-            print(f"Flood control exceeded. Retry after {e.timeout} seconds.")
-            await asyncio.sleep(e.timeout)
+
+        except asyncio.TimeoutError:
+            print(f"TimeoutError: Request to {url} timed out, attempt {attempt + 1}/{retries}")
+
+        except RetryAfter as e:
+            print(f"Flood control exceeded. Sleeping for {e.timeout} seconds.")
+            await asyncio.sleep(e.timeout)  # Wait and retry
+
         except Exception as e:
             print(f"Unexpected error: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
 
         attempt += 1
         await asyncio.sleep(2)  # Wait before retrying
+
     return url, None  # After all retries, return None for failed fetch
 
 
@@ -225,7 +240,7 @@ def extract_headers_and_data(html_content):
 # print(f"Total URLs to scrape: {len(url_list)}")
 async def scrape_urls(url_list):
     """Scrape data from a list of URLs concurrently and save to CSV in batches."""
-    batch_size = 100
+    batch_size = 5
     semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
 
     async with aiohttp.ClientSession() as session:
@@ -258,14 +273,13 @@ async def scrape_urls(url_list):
             await asyncio.sleep(60)
 
 
-url_list = [base_url.format(i=i) for i in range(0, 1514225)]
+url_list = [base_url.format(i=i) for i in range(2, 1514225)]
 
 print(f"Total URLs to scrape: {len(url_list)}")
 
 # Run the scraper
 asyncio.run(scrape_urls(url_list))
-# Start scraping
-asyncio.run(scrape_urls(url_list))
+
 
 # Optional: If you want to fetch and process a single URL separately
 # async def main():

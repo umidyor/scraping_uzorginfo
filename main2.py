@@ -197,7 +197,7 @@ async def scrape_urls(url_list, output_file):
                 df = pd.DataFrame(all_data)
                 df.to_csv(output_file, index=False, encoding='utf-8')
                 print(f"Data for {url} saved.")
-                await problems(f"Data for {url} saved.")
+                # await problems(f"Data for {url} saved.")
             else:
                 print(f"Failed to fetch {url}.")
 

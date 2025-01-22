@@ -1,32 +1,21 @@
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-
-ADMINS = 5149506457
-# Initialize bot and dispatcher
-bot = Bot(token="5969834869:AAFxnJS7vd_7pX63w0xk7hxD9DqVbUCZarc")
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-
-
-async def problems(message: str):
-    await bot.send_message(chat_id=ADMINS, text=message)
-
-from aiogram.utils.exceptions import RetryAfter
 import asyncio
-
-async def filesend(file_path: str):
-    try:
-        with open(file_path, 'rb') as file:
-            await bot.send_document(ADMINS, document=file)
-    except Exception as e:
-        await problems(f"Problem for filesend: {e}")
+import aiohttp
+import pandas as pd
+from bs4 import BeautifulSoup
 
 
+api_key = "08805ae8991561e7b31e1fc421e53939"
+base_url = "https://uzorg.info/oz/info-id-{i}"  # Main page URL pattern
+
+# Create a semaphore to limit concurrent requests
+semaphore = asyncio.Semaphore(5)  # Limits to 5 concurrent requests
+
+# Function to fetch URL content asynchronously with rate limiting
+import aiohttp
+import asyncio
+from aiogram.utils.exceptions import RetryAfter
 
 
-
-#
-#
 async def fetch_url(session, url):
     """Fetch a URL asynchronously with rate limiting and retry on failure."""
     retries = 3  # Retry limit for failed requests
@@ -40,8 +29,6 @@ async def fetch_url(session, url):
                     html_content = await response.text()
                     print(f"Fetched data from {url}")
                     # await problems(f"Fetched data from {url}")
-
-
                     return url, html_content
 
                 elif response.status == 404:
@@ -98,21 +85,16 @@ def extract_headers_and_data(html_content):
                 data[headers[i]] = value_text
     return headers, data
 import os
-import aiohttp
-import pandas as pd
-from bs4 import BeautifulSoup
-api_key = "08805ae8991561e7b31e1fc421e53939"
-base_url = "https://uzorg.info/oz/info-id-{i}"
+
 async def scrape_urls(url_list):
     """Scrape data from a list of URLs concurrently and save to CSV in batches."""
-    batch_size = 1000
+    batch_size = 5
     semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
 
     async with aiohttp.ClientSession() as session:
         for batch_number, i in enumerate(range(0, len(url_list), batch_size), start=1):
             batch_urls = url_list[i:i + batch_size]
             print(f"Processing batch {batch_number} with {len(batch_urls)} URLs...")
-            await problems(f"Processing batch {batch_number} with {len(batch_urls)} URLs...")
 
             async def limited_fetch(url):
                 async with semaphore:
@@ -137,10 +119,9 @@ async def scrape_urls(url_list):
                     f.flush()
                     os.fsync(f.fileno())
                 print(f"Batch {batch_number} saved to {output_file}.", flush=True)
-                await filesend(output_file)
+                await filesend("File is ready!", output_file)
 
             print(f"Sleeping for 1 minute after batch {batch_number}...")
-            await problems(f"Sleeping for 1 minute after batch {batch_number}...")
             await asyncio.sleep(60)
 
 
@@ -148,4 +129,6 @@ url_list = [base_url.format(i=i) for i in range(2, 1514225)]
 
 print(f"Total URLs to scrape: {len(url_list)}")
 
-asyncio.run(scrape_urls(url_list))
+# Run the scraper
+# asyncio.run(scrape_urls(url_list))
+asyncio.run(filesend("afafa","scraped_5.csv"))
