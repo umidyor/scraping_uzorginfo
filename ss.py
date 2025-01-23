@@ -1,134 +1,78 @@
-import asyncio
 import aiohttp
-import pandas as pd
-from bs4 import BeautifulSoup
-
-
-api_key = "08805ae8991561e7b31e1fc421e53939"
-base_url = "https://uzorg.info/oz/info-id-{i}"  # Main page URL pattern
-
-# Create a semaphore to limit concurrent requests
-semaphore = asyncio.Semaphore(5)  # Limits to 5 concurrent requests
-
-# Function to fetch URL content asynchronously with rate limiting
-import aiohttp
+import random
 import asyncio
-from aiogram.utils.exceptions import RetryAfter
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
 
 
-async def fetch_url(session, url):
-    """Fetch a URL asynchronously with rate limiting and retry on failure."""
-    retries = 3  # Retry limit for failed requests
-    attempt = 0
-    while attempt < retries:
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                await asyncio.sleep(1)  # Rate limiting to avoid overwhelming the server
+# Load proxies from file
+def load_proxies(file_path):
+    with open(file_path, 'r') as f:
+        proxies = [line.strip() for line in f if line.strip()]
+    return proxies
 
-                if response.status == 200:
-                    html_content = await response.text()
-                    print(f"Fetched data from {url}")
-                    # await problems(f"Fetched data from {url}")
-                    return url, html_content
+# Load the proxies into a list
+proxy_list = load_proxies("proxyscrape_premium_http_proxies.txt")
 
-                elif response.status == 404:
-                    print(f"404 Error: Page {url} not found. Skipping.")
-                    return url, None  # Skip URLs that return 404
-
-                else:
-                    print(f"Unexpected status {response.status} for {url}. Retrying...")
-
-        except aiohttp.ClientResponseError as e:
-            print(f"ClientError: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
-
-        except aiohttp.ClientConnectionError as e:
-            print(f"ConnectionError: Failed to connect to {url}, attempt {attempt + 1}/{retries}: {e}")
-
-        except asyncio.TimeoutError:
-            print(f"TimeoutError: Request to {url} timed out, attempt {attempt + 1}/{retries}")
-
-        except RetryAfter as e:
-            print(f"Flood control exceeded. Sleeping for {e.timeout} seconds.")
-            await asyncio.sleep(e.timeout)  # Wait and retry
-
-        except Exception as e:
-            print(f"Unexpected error: Failed to fetch {url}, attempt {attempt + 1}/{retries}: {e}")
-
-        attempt += 1
-        await asyncio.sleep(2)
-
-    return url, None
-
-
-def extract_headers_and_data(html_content):
-    """Extract headers and data from HTML content."""
-    soup = BeautifulSoup(html_content, "html.parser")
-
-    # Extract columns for headers
-    columns = soup.find_all("div", class_="col-sm-3 text-dark")
-    headers = [column.text.strip() for column in columns]
-
-    # Extract data for each row
-    div = soup.find("div", class_="container pt-3 pb-5")
-    rows = div.find_all("div", class_="row pt-3")
-
-    data = {}
-    for i, row in enumerate(rows):
-        label = row.find("div", class_="col-sm-3 text-dark")
-        value = row.find("div", class_="col-sm-9")
-
-        if label and value:
-            label_text = label.get_text(strip=True)
-            value_text = value.get_text(strip=True)
-
-            if i < len(headers):  # Map values to headers
-                data[headers[i]] = value_text
-    return headers, data
-import os
-
-async def scrape_urls(url_list):
-    """Scrape data from a list of URLs concurrently and save to CSV in batches."""
-    batch_size = 5
-    semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
+async def fetch_url(url):
+    proxy = random.choice(proxy_list)  # Randomly choose a proxy
+    proxy_url = f"http://{proxy}"  # Format the proxy correctly
 
     async with aiohttp.ClientSession() as session:
-        for batch_number, i in enumerate(range(0, len(url_list), batch_size), start=1):
-            batch_urls = url_list[i:i + batch_size]
-            print(f"Processing batch {batch_number} with {len(batch_urls)} URLs...")
-
-            async def limited_fetch(url):
-                async with semaphore:
-                    return await fetch_url(session, url)
-
-            tasks = [limited_fetch(url) for url in batch_urls]
-            results = await asyncio.gather(*tasks)
-
-            all_data = []
-            for url, html_content in results:
-                if html_content:
-                    dynamic_headers, data = extract_headers_and_data(html_content)
-                    all_data.append(data)
+        try:
+            async with session.get(url, proxy=proxy_url, timeout=30) as response:
+                if response.status == 200:
+                    html_content = await response.text()
+                    print(f"Fetched data from {url} using {proxy}")
+                    return html_content
                 else:
-                    print(f"Skipping {url} due to fetch failure.")
+                    print(f"Failed to fetch {url}, status: {response.status}")
+        except Exception as e:
+            print(f"Error fetching {url} with proxy {proxy}: {e}")
+        return None
 
-            if all_data:
-                output_file = f"scraped_{batch_number * batch_size}.csv"
-                df = pd.DataFrame(all_data)
-                with open(output_file, 'a', newline='', encoding='utf-8') as f:
-                    df.to_csv(f, index=False, header=not f.tell(), mode='a')
-                    f.flush()
-                    os.fsync(f.fileno())
-                print(f"Batch {batch_number} saved to {output_file}.", flush=True)
-                await filesend("File is ready!", output_file)
+async def fetch_with_rotation(url):
+    while proxy_list:
+        proxy = random.choice(proxy_list)
+        proxy_url = f"http://{proxy}"
 
-            print(f"Sleeping for 1 minute after batch {batch_number}...")
-            await asyncio.sleep(60)
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url, proxy=proxy_url, timeout=30) as response:
+                    if response.status == 200:
+                        print(f"Successfully fetched {url} using {proxy}")
+                        return await response.text()
+            except Exception as e:
+                print(f"Proxy {proxy} failed, removing it. Error: {e}")
+                proxy_list.remove(proxy)  # Remove failing proxy
+                if not proxy_list:
+                    print("No more working proxies left.")
+                    return None
+            await asyncio.sleep(random.uniform(1, 3))  # Random delay to mimic human behavior
 
+async def validate_proxy(proxy):
+    test_url = "https://uzorg.info/oz/info-id-17000"  # Test proxy by checking public IP
+    proxy_url = f"http://{proxy}"
 
-url_list = [base_url.format(i=i) for i in range(2, 1514225)]
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(test_url, proxy=proxy_url, timeout=10) as response:
+                if response.status == 200:
+                    print(proxy)
+                    return True
+        except Exception:
+            print(f"Proxy {proxy} failed")
+    return False
 
-print(f"Total URLs to scrape: {len(url_list)}")
+# Validate all proxies
+async def validate_proxies(proxy_list):
+    valid_proxies = []
+    for proxy in proxy_list:
+        if await validate_proxy(proxy):
+            valid_proxies.append(proxy)
+    return valid_proxies
 
-# Run the scraper
-# asyncio.run(scrape_urls(url_list))
-asyncio.run(filesend("afafa","scraped_5.csv"))
+valid_proxies = asyncio.run(validate_proxies(proxy_list))
+print(f"Valid proxies: {valid_proxies}")
+

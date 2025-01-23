@@ -1,19 +1,32 @@
-from aiogram import Bot, Dispatcher, executor, types
+import aiohttp
+import random
+import asyncio
+import os
+import pandas as pd
+from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.utils.exceptions import RetryAfter
+from bs4 import BeautifulSoup
 
 ADMINS = 5149506457
-# Initialize bot and dispatcher
-bot = Bot(token="5969834869:AAFxnJS7vd_7pX63w0xk7hxD9DqVbUCZarc")
+bot = Bot(token="5752135237:AAElZDaC1gjKdRloJZXBjxqVisc4xqFg_OQ")
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
+# Load proxies from file
+def load_proxies(file_path):
+    with open(file_path, 'r') as f:
+        proxies = [line.strip() for line in f if line.strip()]
+    return proxies
 
+# Load the proxies into a list
+proxy_list = load_proxies("proxyscrape_premium_http_proxies.txt")
+
+# Helper function to send notifications
 async def problems(message: str):
     await bot.send_message(chat_id=ADMINS, text=message)
 
-from aiogram.utils.exceptions import RetryAfter
-import asyncio
-
+# Function to send a file to the admin
 async def filesend(file_path: str):
     try:
         with open(file_path, 'rb') as file:
@@ -21,27 +34,21 @@ async def filesend(file_path: str):
     except Exception as e:
         await problems(f"Problem for filesend: {e}")
 
-
-
-
-
-#
-#
+# Function to fetch a URL with proxy rotation
 async def fetch_url(session, url):
-    """Fetch a URL asynchronously with rate limiting and retry on failure."""
+    """Fetch a URL asynchronously with proxy rotation, rate limiting, and retries."""
     retries = 3  # Retry limit for failed requests
     attempt = 0
     while attempt < retries:
+        proxy = random.choice(proxy_list)  # Randomly choose a proxy
+        proxy_url = f"http://{proxy}"  # Format the proxy correctly
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.get(url, proxy=proxy_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 await asyncio.sleep(1)  # Rate limiting to avoid overwhelming the server
 
                 if response.status == 200:
                     html_content = await response.text()
-                    print(f"Fetched data from {url}")
-                    # await problems(f"Fetched data from {url}")
-
-
+                    print(f"Fetched data from {url} using {proxy}")
                     return url, html_content
 
                 elif response.status == 404:
@@ -72,16 +79,14 @@ async def fetch_url(session, url):
 
     return url, None
 
-
+# Extract headers and data from HTML content
 def extract_headers_and_data(html_content):
     """Extract headers and data from HTML content."""
     soup = BeautifulSoup(html_content, "html.parser")
 
-    # Extract columns for headers
     columns = soup.find_all("div", class_="col-sm-3 text-dark")
     headers = [column.text.strip() for column in columns]
 
-    # Extract data for each row
     div = soup.find("div", class_="container pt-3 pb-5")
     rows = div.find_all("div", class_="row pt-3")
 
@@ -94,18 +99,14 @@ def extract_headers_and_data(html_content):
             label_text = label.get_text(strip=True)
             value_text = value.get_text(strip=True)
 
-            if i < len(headers):  # Map values to headers
+            if i < len(headers):
                 data[headers[i]] = value_text
     return headers, data
-import os
-import aiohttp
-import pandas as pd
-from bs4 import BeautifulSoup
-api_key = "08805ae8991561e7b31e1fc421e53939"
-base_url = "https://uzorg.info/oz/info-id-{i}"
+
+# Scrape data from the list of URLs
 async def scrape_urls(url_list):
     """Scrape data from a list of URLs concurrently and save to CSV in batches."""
-    batch_size = 1000
+    batch_size = 100
     semaphore = asyncio.Semaphore(10)  # Limit concurrent requests
 
     async with aiohttp.ClientSession() as session:
@@ -130,22 +131,24 @@ async def scrape_urls(url_list):
                     print(f"Skipping {url} due to fetch failure.")
 
             if all_data:
-                output_file = f"scraped_{batch_number * batch_size}.csv"
+                output_file = f"CSV/scraped_{batch_number * batch_size}.csv"
                 df = pd.DataFrame(all_data)
                 with open(output_file, 'a', newline='', encoding='utf-8') as f:
                     df.to_csv(f, index=False, header=not f.tell(), mode='a')
                     f.flush()
                     os.fsync(f.fileno())
                 print(f"Batch {batch_number} saved to {output_file}.", flush=True)
+                await problems(f"Batch {batch_number} saved to {output_file}.")
                 await filesend(output_file)
 
             print(f"Sleeping for 1 minute after batch {batch_number}...")
             await problems(f"Sleeping for 1 minute after batch {batch_number}...")
             await asyncio.sleep(60)
 
-
-url_list = [base_url.format(i=i) for i in range(2, 1514225)]
-
+# List of URLs to scrape
+base_url = "https://uzorg.info/oz/info-id-{i}"
+url_list = [base_url.format(i=i) for i in range(300, 1514225)]
 print(f"Total URLs to scrape: {len(url_list)}")
 
+# Start scraping
 asyncio.run(scrape_urls(url_list))
